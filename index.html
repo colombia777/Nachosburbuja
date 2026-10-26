@@ -572,9 +572,9 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
 
   const CONFIG = Object.freeze({
     negocioId: 'nachos',
-    version: 'A124 → N125',
-    archivo: 'Nachos-125-index.html',
-    peso: '296.8 KB'
+    version: 'A125 → N126',
+    archivo: 'Nachos-126-index.html',
+    peso: '307.9 KB'
   });
 
   /* ---------- Utilidades ---------- */
@@ -895,7 +895,10 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
         catch (e) { throw new Error('No hay espacio de almacenamiento en este dispositivo.'); }
         Bus.emit('store:' + modulo, datos);
         return datos;
-      }
+      },
+      // Copia de seguridad: el dato tal cual está guardado (null si no existe) y quitarlo (vuelve a su valor por defecto).
+      crudo(modulo) { try { const raw = localStorage.getItem(clave(modulo)); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } },
+      quitar(modulo) { localStorage.removeItem(clave(modulo)); }
     };
   })();
 
@@ -921,10 +924,20 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
     function blobADataURL(blob) {
       return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
     }
+    const leerDb = (db, id) => new Promise(res => {
+      const req = db.transaction(TABLA).objectStore(TABLA).get(id);
+      req.onsuccess = () => res(req.result || null); req.onerror = () => res(null);
+    });
     const urls = {};
-    return {
+    const api = {
       async guardar(blob) {
         const id = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        await api.poner(id, blob);
+        return id;
+      },
+      // Guarda con un id dado (copia de seguridad: las referencias de los datos siguen valiendo).
+      async poner(id, blob) {
+        if (urls[id]) { URL.revokeObjectURL(urls[id]); delete urls[id]; }
         const db = await abrir();
         if (db) {
           await new Promise((res, rej) => {
@@ -936,17 +949,24 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
           try { localStorage.setItem(lsClave(id), await blobADataURL(blob)); }
           catch (e) { throw new Error('No hay espacio para guardar el archivo en este dispositivo.'); }
         }
-        return id;
+      },
+      // El archivo original (Blob) o null.
+      async blob(id) {
+        if (!id) return null;
+        const db = await abrir();
+        if (db) {
+          const b = await leerDb(db, id);
+          if (b) return b;
+        }
+        const dataUrl = localStorage.getItem(lsClave(id));
+        return dataUrl ? (await fetch(dataUrl)).blob() : null;
       },
       async url(id) {
         if (!id) return null;
         if (urls[id]) return urls[id];
         const db = await abrir();
         if (db) {
-          const blob = await new Promise(res => {
-            const req = db.transaction(TABLA).objectStore(TABLA).get(id);
-            req.onsuccess = () => res(req.result || null); req.onerror = () => res(null);
-          });
+          const blob = await leerDb(db, id);
           if (blob) return (urls[id] = URL.createObjectURL(blob));
         }
         return localStorage.getItem(lsClave(id));
@@ -959,6 +979,7 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
         localStorage.removeItem(lsClave(id));
       }
     };
+    return api;
   })();
 
   /* ---------- Registro de módulos ----------
@@ -4082,6 +4103,172 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
       cuerpo.append(...filtro.el, inBus, zona);
       await pintar();
       Util.escuchar(cuerpo, ['store:pedidos'], pintar);
+    }
+  });
+})();
+</script>
+<script id="js-copias">
+(function () {
+  'use strict';
+  const { Util, Bus, Store, Media, CONFIG } = App;
+  // Copia de seguridad: un solo archivo JSON con los datos y las fotos. El carrito (del cliente) no va.
+  const SECCIONES = [
+    { id: 'marca', nombre: 'Marca y logo', claves: ['marca'] },
+    { id: 'banners', nombre: 'Banners', claves: ['banners'] },
+    { id: 'carta', nombre: 'Categorías y productos', claves: ['categorias', 'productos', 'carta'] },
+    { id: 'promos', nombre: 'Promociones y destacados', claves: ['promos', 'destacados'] },
+    { id: 'config', nombre: 'Configuración (pedidos, pagos, horario, pie, ayuda, Admin)', claves: ['pedidos-config', 'cobros-config', 'horario', 'pie', 'ayuda', 'admin-titulos', 'admin-orden', 'asesor'] },
+    { id: 'inventario', nombre: 'Inventario', claves: ['inventario'] },
+    { id: 'ventas', nombre: 'Ventas (pedidos y cobros)', claves: ['pedidos', 'cobros'], aparte: true }
+  ];
+  const CAMPOS_FOTO = ['imagenId', 'logoId', 'qrId'];
+  const PREVIA = 'copia-previa', AVISO = CONFIG.negocioId + ':copia-aviso';
+  const fechaTxt = (f) => { const d = new Date(f); return isNaN(d) ? '—' : d.toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }); };
+
+  // Ids de fotos que usan los datos (logo, banners, categorías, productos, QR de pagos).
+  function fotosDe(dato, ids = new Set()) {
+    if (Array.isArray(dato)) dato.forEach(x => fotosDe(x, ids));
+    else if (dato && typeof dato === 'object') Object.keys(dato).forEach(k => {
+      if (CAMPOS_FOTO.includes(k) && typeof dato[k] === 'string' && dato[k]) ids.add(dato[k]); else fotosDe(dato[k], ids);
+    });
+    return ids;
+  }
+  const aDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+
+  async function armarCopia(ids) {
+    const datos = {};
+    SECCIONES.filter(s => ids.includes(s.id)).forEach(s => s.claves.forEach(k => { datos[k] = Store.crudo(k); }));
+    const fotos = {};
+    for (const id of fotosDe(datos)) { const b = await Media.blob(id); if (b) fotos[id] = await aDataUrl(b); }
+    return { app: CONFIG.negocioId, tipo: 'copia', version: CONFIG.version, fecha: new Date().toISOString(), secciones: ids, datos, fotos };
+  }
+
+  // Valida antes de tocar nada: si no es una copia de esta app o viene dañada, se rechaza entera.
+  function validar(c) {
+    if (!c || c.app !== CONFIG.negocioId || c.tipo !== 'copia' || !c.datos || typeof c.datos !== 'object' || !Array.isArray(c.secciones))
+      throw new Error('Este archivo no es una copia de seguridad de NACHO\'S.');
+    const secs = SECCIONES.filter(s => c.secciones.includes(s.id));
+    if (!secs.length) throw new Error('La copia no trae secciones para restaurar.');
+    for (const s of secs) for (const k of s.claves) {
+      const v = c.datos[k];
+      if (v !== null && v !== undefined && typeof v !== 'object') throw new Error('La copia está dañada (' + s.nombre + ').');
+    }
+    const fotos = c.fotos && typeof c.fotos === 'object' ? c.fotos : {};
+    if (Object.values(fotos).some(u => typeof u !== 'string' || !u.startsWith('data:'))) throw new Error('La copia está dañada (fotos).');
+    return { secs, fotos };
+  }
+
+  // Escribe las claves tal cual (null = quitar). Las fotos van antes que los datos que las usan.
+  async function escribir(datos) {
+    for (const k of Object.keys(datos)) {
+      if (datos[k] === null || datos[k] === undefined) Store.quitar(k); else await Store.set(k, datos[k]);
+    }
+  }
+  async function leerPrevia() {
+    try { const b = await Media.blob(PREVIA); return b ? JSON.parse(await b.text()) : null; } catch (e) { return null; }
+  }
+  // Recarga en Admin para que toda la app lea los datos nuevos.
+  function recargar(texto) {
+    try { sessionStorage.setItem(AVISO, texto); } catch (e) { }
+    history.replaceState(null, '', location.href.split('#')[0] + '#admin');
+    location.reload();
+  }
+
+  async function restaurar(c, ids) {
+    const { secs, fotos } = validar(c);
+    const elegidas = secs.filter(s => ids.includes(s.id));
+    const claves = elegidas.flatMap(s => s.claves);
+    // 1. Respaldo de lo actual (para deshacer). Si no se puede guardar, no se restaura.
+    const previa = { fecha: new Date().toISOString(), secciones: elegidas.map(s => s.nombre), datos: {} };
+    claves.forEach(k => { previa.datos[k] = Store.crudo(k); });
+    await Media.poner(PREVIA, new Blob([JSON.stringify(previa)], { type: 'application/json' }));
+    // 2. Fotos que usan las secciones elegidas.
+    const nuevos = {};
+    claves.forEach(k => { nuevos[k] = c.datos[k] === undefined ? null : c.datos[k]; });
+    for (const id of fotosDe(nuevos)) if (fotos[id]) await Media.poner(id, await (await fetch(fotos[id])).blob());
+    // 3. Datos. Si algo falla a mitad, se devuelve lo anterior.
+    try { await escribir(nuevos); }
+    catch (e) { await escribir(previa.datos); throw e; }
+    return elegidas;
+  }
+
+  // Después de restaurar o deshacer la página se recarga en Admin: se avisa el resultado.
+  Bus.on('app:lista', () => {
+    try { const t = sessionStorage.getItem(AVISO); if (t) { sessionStorage.removeItem(AVISO); Util.toast(t, true); } } catch (e) { }
+  });
+
+  App.modulo({
+    id: 'copias',
+    letra: 'O',
+    titulo: 'Copia de seguridad',
+    async admin(cuerpo) {
+      const msg = Util.el('p', { class: 'adm-msg', role: 'status' });
+      const aviso = (t, tipo) => Util.mensaje(msg, t, tipo);
+      const casillas = (secs, marcar) => secs.map(s => {
+        const sw = Util.el('input', { type: 'checkbox', checked: marcar(s), value: s.id });
+        return Util.el('label', { class: 'adm-switch' }, sw, Util.el('span', { text: s.nombre }));
+      });
+      const marcadas = (caja) => [...caja.querySelectorAll('input:checked')].map(x => x.value);
+
+      // Descargar
+      const cajaBajar = Util.el('div', { class: 'adm-campo' }, ...casillas(SECCIONES, () => true));
+      const btnBajar = Util.el('button', { type: 'button', class: 'btn btn--prim', text: '⬇️ Descargar copia', onclick: async () => {
+        const ids = marcadas(cajaBajar);
+        if (!ids.length) return aviso('⚠️ Marca al menos una sección.', 'error');
+        btnBajar.disabled = true; aviso('Preparando la copia…', 'ok');
+        try {
+          const c = await armarCopia(ids), f = c.fecha.slice(0, 16).replace('T', '_').replace(':', '');
+          App.servicio('reportes').descargarJson('nachos-copia-' + f + '.json', c);
+          aviso('✅ Copia descargada (' + Object.keys(c.fotos).length + ' fotos). Guárdala en un lugar seguro.', 'ok');
+        } catch (e) { aviso('⚠️ ' + (e.message || 'No se pudo crear la copia.'), 'error'); }
+        btnBajar.disabled = false;
+      } });
+
+      // Restaurar
+      const zonaSubir = Util.el('div', { class: 'adm-campo' });
+      const inArchivo = Util.el('input', { type: 'file', accept: '.json,application/json', class: 'oculto', onchange: async () => {
+        const file = inArchivo.files[0]; inArchivo.value = '';
+        zonaSubir.replaceChildren();
+        if (!file) return;
+        let c, secs;
+        try { c = JSON.parse(await file.text()); ({ secs } = validar(c)); }
+        catch (e) { return aviso('⚠️ ' + (e instanceof SyntaxError ? 'El archivo está dañado o no es una copia.' : e.message) + ' No se cambió nada.', 'error'); }
+        aviso('', 'ok');
+        const caja = Util.el('div', { class: 'adm-campo' }, ...casillas(secs, s => !s.aparte));
+        zonaSubir.append(
+          Util.el('p', { class: 'adm-nota', text: 'Copia del ' + fechaTxt(c.fecha) + ' · versión ' + (c.version || '—') + '. Marca qué quieres restaurar:' }),
+          caja,
+          Util.el('div', { class: 'adm-acciones' },
+            Util.el('button', { type: 'button', class: 'btn', text: 'Cancelar', onclick: () => zonaSubir.replaceChildren() }),
+            Util.el('button', { type: 'button', class: 'btn btn--prim', text: '⬆️ Restaurar', onclick: async (e) => {
+              const ids = marcadas(caja);
+              if (!ids.length) return aviso('⚠️ Marca al menos una sección.', 'error');
+              const nombres = secs.filter(s => ids.includes(s.id)).map(s => s.nombre);
+              if (!await Util.confirmar('¿Restaurar la copia del ' + fechaTxt(c.fecha) + '?', 'Se reemplaza: ' + nombres.join(', ') + '. Podrás deshacerlo.', 'Restaurar', 'Cancelar')) return;
+              e.target.disabled = true; aviso('Restaurando…', 'ok');
+              try { await restaurar(c, ids); recargar('✅ Copia restaurada: ' + nombres.join(', ') + '.'); }
+              catch (x) { e.target.disabled = false; aviso('⚠️ ' + (x.message || 'No se pudo restaurar.') + ' Se dejó todo como estaba.', 'error'); }
+            } })));
+      } });
+      const btnSubir = Util.el('button', { type: 'button', class: 'btn', text: '⬆️ Restaurar copia', onclick: () => inArchivo.click() });
+
+      // Deshacer
+      const zonaDeshacer = Util.el('div', { class: 'adm-campo' });
+      const previa = await leerPrevia();
+      if (previa && previa.datos) zonaDeshacer.append(
+        Util.el('p', { class: 'adm-nota', text: 'Última restauración: ' + fechaTxt(previa.fecha) + ' (' + (previa.secciones || []).join(', ') + ').' }),
+        Util.el('button', { type: 'button', class: 'btn', text: '↩️ Deshacer última restauración', onclick: async (e) => {
+          if (!await Util.confirmar('¿Deshacer la última restauración?', 'Vuelve lo que tenías antes de restaurar: ' + (previa.secciones || []).join(', ') + '.', 'Deshacer', 'Cancelar')) return;
+          e.target.disabled = true;
+          try { await escribir(previa.datos); await Media.borrar(PREVIA); recargar('↩️ Restauración deshecha.'); }
+          catch (x) { e.target.disabled = false; aviso('⚠️ ' + (x.message || 'No se pudo deshacer.'), 'error'); }
+        } }));
+
+      cuerpo.append(
+        Util.el('p', { class: 'adm-nota', text: 'Guarda todo en un solo archivo, con las fotos. Sirve para pasar la carta a otro celular o al link publicado.' }),
+        cajaBajar, Util.el('div', { class: 'adm-acciones' }, btnBajar),
+        Util.el('p', { class: 'adm-nota', text: 'Restaurar: elige el archivo, marca las secciones y confirma. Antes se guarda lo actual para poder deshacer.' }),
+        Util.el('div', { class: 'adm-acciones' }, btnSubir), inArchivo, zonaSubir, zonaDeshacer, msg);
     }
   });
 })();
