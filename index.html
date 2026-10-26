@@ -572,9 +572,9 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
 
   const CONFIG = Object.freeze({
     negocioId: 'nachos',
-    version: 'A126 → N127',
-    archivo: 'Nachos-127-index.html',
-    peso: '310.5 KB'
+    version: 'A125 → N126',
+    archivo: 'Nachos-126-index.html',
+    peso: '307.9 KB'
   });
 
   /* ---------- Utilidades ---------- */
@@ -994,8 +994,6 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
     lista() { return modulos.slice(); },
     async iniciar() {
       const ordenados = modulos.slice().sort((a, b) => (a.orden || 0) - (b.orden || 0));
-      // preparar(): opcional, corre antes de montar (ej. cargar la carta publicada).
-      for (const m of ordenados) if (m.preparar) { try { await m.preparar(); } catch (e) { console.error('Módulo ' + m.id, e); } }
       for (const m of ordenados) {
         const slot = document.getElementById(m.slot);
         if (!slot || !m.montar) continue;
@@ -4125,9 +4123,6 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
   ];
   const CAMPOS_FOTO = ['imagenId', 'logoId', 'qrId'];
   const PREVIA = 'copia-previa', AVISO = CONFIG.negocioId + ':copia-aviso';
-  // Carta publicada: carta.json junto al index (GitHub). Lo que ve el cliente; sin ventas, inventario ni datos de este celular.
-  const PUBLICAR = ['marca', 'banners', 'carta', 'promos', 'config'], PROPIAS = ['asesor', 'admin-titulos', 'admin-orden'];
-  const PUBLICADA = 'carta-publicada', ARCHIVO_PUB = 'carta.json', ESPERA_PUB = 6000;
   const fechaTxt = (f) => { const d = new Date(f); return isNaN(d) ? '—' : d.toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }); };
 
   // Ids de fotos que usan los datos (logo, banners, categorías, productos, QR de pagos).
@@ -4140,9 +4135,9 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
   }
   const aDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
 
-  async function armarCopia(ids, excluir = []) {
+  async function armarCopia(ids) {
     const datos = {};
-    SECCIONES.filter(s => ids.includes(s.id)).forEach(s => s.claves.filter(k => !excluir.includes(k)).forEach(k => { datos[k] = Store.crudo(k); }));
+    SECCIONES.filter(s => ids.includes(s.id)).forEach(s => s.claves.forEach(k => { datos[k] = Store.crudo(k); }));
     const fotos = {};
     for (const id of fotosDe(datos)) { const b = await Media.blob(id); if (b) fotos[id] = await aDataUrl(b); }
     return { app: CONFIG.negocioId, tipo: 'copia', version: CONFIG.version, fecha: new Date().toISOString(), secciones: ids, datos, fotos };
@@ -4179,40 +4174,22 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
     location.reload();
   }
 
-  // Solo se tocan las claves que trae el archivo. conRespaldo: guarda lo actual para "Deshacer".
-  async function restaurar(c, ids, conRespaldo = true) {
+  async function restaurar(c, ids) {
     const { secs, fotos } = validar(c);
     const elegidas = secs.filter(s => ids.includes(s.id));
-    const claves = elegidas.flatMap(s => s.claves).filter(k => k in c.datos);
+    const claves = elegidas.flatMap(s => s.claves);
     // 1. Respaldo de lo actual (para deshacer). Si no se puede guardar, no se restaura.
     const previa = { fecha: new Date().toISOString(), secciones: elegidas.map(s => s.nombre), datos: {} };
     claves.forEach(k => { previa.datos[k] = Store.crudo(k); });
-    if (conRespaldo) await Media.poner(PREVIA, new Blob([JSON.stringify(previa)], { type: 'application/json' }));
+    await Media.poner(PREVIA, new Blob([JSON.stringify(previa)], { type: 'application/json' }));
     // 2. Fotos que usan las secciones elegidas.
     const nuevos = {};
-    claves.forEach(k => { nuevos[k] = c.datos[k]; });
+    claves.forEach(k => { nuevos[k] = c.datos[k] === undefined ? null : c.datos[k]; });
     for (const id of fotosDe(nuevos)) if (fotos[id]) await Media.poner(id, await (await fetch(fotos[id])).blob());
     // 3. Datos. Si algo falla a mitad, se devuelve lo anterior.
     try { await escribir(nuevos); }
     catch (e) { await escribir(previa.datos); throw e; }
     return elegidas;
-  }
-
-  // Al abrir la app: si el carta.json publicado es más nuevo que lo que tiene este celular, se carga.
-  // Sin internet, sin archivo o si este celular ya tiene esa versión (o la editó después), sigue igual.
-  async function cargarPublicada() {
-    if (!/^https?:/.test(location.protocol)) return;
-    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ESPERA_PUB);
-    let c;
-    try {
-      const r = await fetch(ARCHIVO_PUB + '?v=' + Date.now(), { cache: 'no-store', signal: ctl.signal });
-      if (!r.ok) return;
-      c = await r.json();
-    } catch (e) { return; } finally { clearTimeout(t); }
-    const local = Store.crudo(PUBLICADA);
-    if (!c || !c.fecha || (local && new Date(local.fecha) >= new Date(c.fecha))) return;
-    await restaurar(c, c.secciones || [], false);
-    await Store.set(PUBLICADA, { fecha: c.fecha });
   }
 
   // Después de restaurar o deshacer la página se recarga en Admin: se avisa el resultado.
@@ -4224,7 +4201,6 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
     id: 'copias',
     letra: 'O',
     titulo: 'Copia de seguridad',
-    preparar: cargarPublicada,
     async admin(cuerpo) {
       const msg = Util.el('p', { class: 'adm-msg', role: 'status' });
       const aviso = (t, tipo) => Util.mensaje(msg, t, tipo);
@@ -4246,18 +4222,6 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
           aviso('✅ Copia descargada (' + Object.keys(c.fotos).length + ' fotos). Guárdala en un lugar seguro.', 'ok');
         } catch (e) { aviso('⚠️ ' + (e.message || 'No se pudo crear la copia.'), 'error'); }
         btnBajar.disabled = false;
-      } });
-
-      // Publicar: carta.json para subir a GitHub junto al index.
-      const btnPublicar = Util.el('button', { type: 'button', class: 'btn btn--prim', text: '📢 Publicar carta', onclick: async () => {
-        btnPublicar.disabled = true; aviso('Preparando la carta…', 'ok');
-        try {
-          const c = await armarCopia(PUBLICAR, PROPIAS);
-          App.servicio('reportes').descargarJson(ARCHIVO_PUB, c);
-          await Store.set(PUBLICADA, { fecha: c.fecha });
-          aviso('✅ carta.json descargado (' + Object.keys(c.fotos).length + ' fotos). Súbelo a GitHub junto al index con ese nombre exacto.', 'ok');
-        } catch (e) { aviso('⚠️ ' + (e.message || 'No se pudo publicar.'), 'error'); }
-        btnPublicar.disabled = false;
       } });
 
       // Restaurar
@@ -4303,8 +4267,6 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
       cuerpo.append(
         Util.el('p', { class: 'adm-nota', text: 'Guarda todo en un solo archivo, con las fotos. Sirve para pasar la carta a otro celular o al link publicado.' }),
         cajaBajar, Util.el('div', { class: 'adm-acciones' }, btnBajar),
-        Util.el('p', { class: 'adm-nota', text: 'Publicar: descarga carta.json (sin ventas ni inventario). Súbelo a GitHub junto al index y todos verán esta carta.' }),
-        Util.el('div', { class: 'adm-acciones' }, btnPublicar),
         Util.el('p', { class: 'adm-nota', text: 'Restaurar: elige el archivo, marca las secciones y confirma. Antes se guarda lo actual para poder deshacer.' }),
         Util.el('div', { class: 'adm-acciones' }, btnSubir), inArchivo, zonaSubir, zonaDeshacer, msg);
     }
