@@ -544,6 +544,26 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
 </style>
 
 <!-- =====================================================================
+     CSS · MÓDULO LLAMAR ASESOR  (botón redondo flotante · autogestión)
+     ===================================================================== -->
+<style id="css-llamar">
+/* A la derecha, encima de la fila Compartir · WhatsApp; con pedido en curso, encima de la barra del carrito. */
+.llamar{position:fixed;left:0;right:0;bottom:calc(45px + env(safe-area-inset-bottom));z-index:45;max-width:var(--ancho-max);margin:0 auto;display:flex;justify-content:flex-end;padding:0 var(--gutter);pointer-events:none}
+body.con-barra .llamar{bottom:calc(var(--barra-alto, 64px) + 10px)}
+/* Espacio al final para que el botón no tape el pie (ni el último producto con la barra del carrito). */
+body.con-llamar:not(.con-barra) .pie__fila{padding-bottom:calc(125px + env(safe-area-inset-bottom))}
+body.con-llamar.con-barra{padding-bottom:calc(148px + env(safe-area-inset-bottom))}
+.llamar__btn,.llamar__foto{width:70px;height:70px;border-radius:50%;overflow:hidden;flex:0 0 auto}
+.llamar__btn{pointer-events:auto;padding:0;border:3px solid var(--blanco);background:var(--naranja);box-shadow:0 4px 12px rgba(58,42,36,.3);cursor:pointer}
+.llamar__foto{display:block;background:var(--naranja);border:3px solid var(--blanco);box-shadow:0 2px 8px rgba(58,42,36,.2)}
+.llamar__btn .llamar__foto{border:0;box-shadow:none;width:100%;height:100%}
+.llamar__foto img,.llamar__foto svg{display:block;width:100%;height:100%;object-fit:cover}
+/* "Asesor" en el pie del círculo (tercio de abajo), por encima de la imagen: rojo en negrita, sin sombra ni caja. */
+.llamar__btn{position:relative}
+.llamar__txt{position:absolute;left:0;right:0;bottom:13%;display:flex;justify-content:center;color:#E10600;font-size:.875rem;font-weight:var(--peso-valor);line-height:1;pointer-events:none}
+</style>
+
+<!-- =====================================================================
      CSS · MÓDULO HORARIO  (aviso de cerrado · autogestión J)
      ===================================================================== -->
 <style id="css-horario">
@@ -572,9 +592,9 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
 
   const CONFIG = Object.freeze({
     negocioId: 'nachos',
-    version: 'A125 → N126',
-    archivo: 'Nachos-126-index.html',
-    peso: '307.9 KB'
+    version: 'A131 → N132',
+    archivo: 'Nachos-132-index.html',
+    peso: '317.6 KB'
   });
 
   /* ---------- Utilidades ---------- */
@@ -4117,7 +4137,7 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
     { id: 'banners', nombre: 'Banners', claves: ['banners'] },
     { id: 'carta', nombre: 'Categorías y productos', claves: ['categorias', 'productos', 'carta'] },
     { id: 'promos', nombre: 'Promociones y destacados', claves: ['promos', 'destacados'] },
-    { id: 'config', nombre: 'Configuración (pedidos, pagos, horario, pie, ayuda, Admin)', claves: ['pedidos-config', 'cobros-config', 'horario', 'pie', 'ayuda', 'admin-titulos', 'admin-orden', 'asesor'] },
+    { id: 'config', nombre: 'Configuración (pedidos, pagos, horario, pie, ayuda, botón asesor, Admin)', claves: ['pedidos-config', 'cobros-config', 'horario', 'pie', 'ayuda', 'llamar', 'admin-titulos', 'admin-orden', 'asesor'] },
     { id: 'inventario', nombre: 'Inventario', claves: ['inventario'] },
     { id: 'ventas', nombre: 'Ventas (pedidos y cobros)', claves: ['pedidos', 'cobros'], aparte: true }
   ];
@@ -4460,7 +4480,7 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
   'use strict';
   const { Util, Store, Bus } = App;
   const MOD = 'ayuda';
-  const DEF = { whatsapp: '' };
+  const DEF = { whatsapp: '', activo: true }; // activo: el dueño decide si el botón de WhatsApp se ve en la carta
   const formatoWa = (d) => d.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1 $2 $3');
 
   async function compartir() {
@@ -4491,7 +4511,7 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
       document.body.classList.add('con-ayuda');
       const pintar = (d) => {
         const num = Util.numeroWa(d.whatsapp);
-        btnWa.classList.toggle('oculto', !num);
+        btnWa.classList.toggle('oculto', !num || !d.activo);
         btnWa.href = num ? 'https://wa.me/' + num + '?text=' + encodeURIComponent('Hola, necesito ayuda con mi pedido.') : '#';
         btnWa.setAttribute('aria-label', 'WhatsApp del asesor ' + d.whatsapp);
         btnWa.lastChild.textContent = formatoWa(d.whatsapp);
@@ -4503,21 +4523,146 @@ body.con-ayuda:not(.con-barra) .pie__fila{padding-bottom:calc(47px + env(safe-ar
     async admin(cuerpo) {
       const msg = Util.el('p', { class: 'adm-msg', role: 'status' });
       const d = await Store.get(MOD, DEF);
+      const sw = Util.el('input', { type: 'checkbox', checked: d.activo,
+        onchange: async e => {
+          await Store.set(MOD, Object.assign(await Store.get(MOD, DEF), { activo: e.target.checked }));
+          Util.mensaje(msg, e.target.checked ? '✅ Botón de WhatsApp activado.' : 'Botón de WhatsApp desactivado.', 'ok');
+        } });
       const inWa = Util.el('input', { type: 'tel', inputmode: 'numeric', class: 'adm-input', value: d.whatsapp, placeholder: '3001234567', id: 'adm-ayu-wa',
         oninput: e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10); } });
       cuerpo.append(
         Util.el('div', { class: 'adm-campo' },
+          Util.el('label', { class: 'adm-switch' }, sw, Util.el('span', { text: 'Mostrar el botón en la carta' })),
           Util.el('label', { class: 'adm-etq', for: 'adm-ayu-wa', text: 'WhatsApp del asesor (+57)' }),
           Util.el('div', { class: 'adm-fila' }, inWa,
             Util.el('button', { type: 'button', class: 'btn btn--prim', text: 'Guardar',
               onclick: async () => {
                 const v = inWa.value.replace(/\D/g, '');
                 if (v && v.length !== 10) { Util.mensaje(msg, '⚠️ El WhatsApp debe tener 10 dígitos.', 'error'); return; }
-                await Store.set(MOD, { whatsapp: v });
+                await Store.set(MOD, Object.assign(await Store.get(MOD, DEF), { whatsapp: v }));
                 Util.mensaje(msg, v ? '✅ WhatsApp del asesor guardado.' : 'Botón de WhatsApp quitado.', 'ok');
               } })),
           Util.el('p', { class: 'adm-nota', text: 'Puede ser el mismo de pedidos u otro. Si lo dejas vacío, el botón no se muestra.' })),
         msg);
+    }
+  });
+})();
+</script>
+
+<!-- =====================================================================
+     JS · MÓDULO LLAMAR ASESOR  (frente: botón redondo flotante · autogestión)
+     El cliente que no entiende la app o prefiere atención toca el botón y se abre WhatsApp
+     con su bandera. Con servidor, el aviso llegará a la caja; el botón queda igual.
+     ===================================================================== -->
+<script id="js-llamar">
+(function () {
+  'use strict';
+  const { Util, Store, Bus, Media } = App;
+  const MOD = 'llamar';
+  const DEF = { activo: true, whatsapp: '', imagenId: null, encuadre: null };
+  const NS = 'http://www.w3.org/2000/svg';
+  // Asesor por defecto: dibujo liso (cabeza, hombros y diadema con micrófono).
+  function dibujo() {
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 56 56'); svg.setAttribute('aria-hidden', 'true');
+    svg.innerHTML = '<rect width="56" height="56" fill="#E8762F"/>'
+      + '<path d="M10 56c1-11 8.5-17 18-17s17 6 18 17z" fill="#FFF6EC"/>'
+      + '<circle cx="28" cy="25" r="9.5" fill="#FFF6EC"/>'
+      + '<path d="M16.5 26a11.5 11.5 0 0 1 23 0" fill="none" stroke="#3A2A24" stroke-width="2.6" stroke-linecap="round"/>'
+      + '<rect x="14.2" y="23.5" width="4.6" height="7.5" rx="2.2" fill="#3A2A24"/><rect x="37.2" y="23.5" width="4.6" height="7.5" rx="2.2" fill="#3A2A24"/>'
+      + '<path d="M39.5 31c0 4-3.5 6.2-8 6.2" fill="none" stroke="#3A2A24" stroke-width="2" stroke-linecap="round"/><circle cx="30.6" cy="37.2" r="1.9" fill="#3A2A24"/>';
+    return svg;
+  }
+  // Foto redonda (la del dueño o el dibujo). La usan el botón y la vista previa de la autogestión.
+  function foto(d) {
+    const caja = Util.el('span', { class: 'llamar__foto' }, dibujo());
+    if (d.imagenId) Media.url(d.imagenId).then(u => { if (u) caja.replaceChildren(Util.el('img', { src: u, alt: '', style: d.encuadre ? 'object-position:' + d.encuadre.x + '% ' + d.encuadre.y + '%' : null })); });
+    return caja;
+  }
+  const leer = async () => Object.assign({}, DEF, await Store.get(MOD, DEF));
+
+  async function llamar(d) {
+    const num = Util.numeroWa(d.whatsapp);
+    if (!num || !await Util.confirmar('¿Quieres que te atienda un asesor?', 'Te abrimos WhatsApp para avisarle.', 'Sí, llamar', 'Cancelar')) return;
+    const Mesa = App.servicio('mesa'), n = Mesa && Mesa.numero();
+    const texto = (n ? 'Bandera #' + String(n).padStart(2, '0') + ' · ' : '') + 'necesito un asesor.';
+    window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(texto), '_blank', 'noopener');
+  }
+
+  App.modulo({
+    id: MOD,
+    slot: 'slot-flotante',
+    orden: 960,
+    letra: 'P',
+    titulo: 'Botón asesor',
+
+    async montar(raiz) {
+      raiz.className = 'llamar oculto';
+      const pintar = (d) => {
+        const ver = d.activo && !!Util.numeroWa(d.whatsapp);
+        raiz.classList.toggle('oculto', !ver);
+        document.body.classList.toggle('con-llamar', ver);
+        raiz.replaceChildren(Util.el('button', { type: 'button', class: 'llamar__btn', 'aria-label': 'Llamar a un asesor', onclick: () => llamar(d) }, foto(d),
+          Util.el('span', { class: 'llamar__txt', 'aria-hidden': 'true', text: 'Asesor' })));
+      };
+      pintar(await leer());
+      Bus.on('store:' + MOD, d => pintar(Object.assign({}, DEF, d)));
+      // Con la barra del carrito, el botón sube justo encima de ella.
+      const medir = () => { const b = document.querySelector('.barra'); if (b && b.offsetHeight) document.body.style.setProperty('--barra-alto', b.offsetHeight + 'px'); };
+      Bus.on('store:carrito', () => setTimeout(medir, 50)); medir();
+    },
+
+    async admin(cuerpo) {
+      const msg = Util.el('p', { class: 'adm-msg', role: 'status' });
+      const aviso = (t, tipo) => Util.mensaje(msg, t, tipo);
+      const guardar = async (fn, ok) => { const d = await leer(); fn(d); await Store.set(MOD, d); if (ok) aviso(ok, 'ok'); };
+      const zona = Util.el('div', { class: 'adm-campo' });
+      const inArchivo = Util.el('input', { type: 'file', accept: 'image/*', class: 'oculto', onchange: async () => {
+        const file = inArchivo.files[0]; inArchivo.value = '';
+        if (!file) return;
+        try {
+          const id = await Media.guardar(await Util.reducirImagen(file, 400, 0.85));
+          let anterior = null;
+          await guardar(d => { anterior = d.imagenId; d.imagenId = id; d.encuadre = null; }, '✅ Imagen del botón guardada.');
+          await Media.borrar(anterior);
+        } catch (e) { aviso('⚠️ ' + e.message, 'error'); }
+      } });
+
+      async function pintar() {
+        const d = await leer();
+        const sw = Util.el('input', { type: 'checkbox', checked: d.activo,
+          onchange: e => guardar(x => { x.activo = e.target.checked; }, e.target.checked ? '✅ Botón activado.' : 'Botón desactivado.') });
+        const inWa = Util.el('input', { type: 'tel', inputmode: 'numeric', class: 'adm-input', value: d.whatsapp, placeholder: '3001234567', id: 'adm-llamar-wa',
+          oninput: e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10); } });
+        const acciones = [Util.el('button', { type: 'button', class: 'btn', text: '📷 ' + (d.imagenId ? 'Cambiar imagen' : 'Subir imagen'), onclick: () => inArchivo.click() })];
+        if (d.imagenId) acciones.push(
+          Util.el('button', { type: 'button', class: 'btn', text: '✋ Encuadre', onclick: async () => {
+            const url = await Media.url(d.imagenId);
+            if (url) Util.encuadre(url, d.encuadre, { aspecto: '1/1', nota: 'Arrastra la imagen hasta que se vea lo importante dentro del círculo.' },
+              (enc) => guardar(x => { x.encuadre = enc; }, '✅ Encuadre guardado.'));
+          } }),
+          Util.el('button', { type: 'button', class: 'btn btn--peligro', text: 'Quitar imagen', onclick: async () => {
+            if (!await Util.confirmar('¿Quitar la imagen del botón?', 'Vuelve el dibujo del asesor.', 'Quitar', 'Cancelar')) return;
+            const id = d.imagenId;
+            await guardar(x => { x.imagenId = null; x.encuadre = null; }, 'Imagen quitada.');
+            await Media.borrar(id);
+          } }));
+        zona.replaceChildren(
+          Util.el('label', { class: 'adm-switch' }, sw, Util.el('span', { text: 'Mostrar el botón en la carta' })),
+          Util.el('div', { class: 'adm-prod' }, foto(d), Util.el('p', { class: 'adm-nota', text: d.imagenId ? 'Imagen del botón.' : 'Dibujo del asesor (por defecto).' })),
+          Util.el('div', { class: 'adm-acciones' }, acciones),
+          Util.el('label', { class: 'adm-etq', for: 'adm-llamar-wa', text: 'WhatsApp de atención a mesas (+57)' }),
+          Util.el('div', { class: 'adm-fila' }, inWa,
+            Util.el('button', { type: 'button', class: 'btn btn--prim', text: 'Guardar', onclick: async () => {
+              const v = inWa.value.replace(/\D/g, '');
+              if (v && v.length !== 10) return aviso('⚠️ El WhatsApp debe tener 10 dígitos.', 'error');
+              await guardar(x => { x.whatsapp = v; }, v ? '✅ WhatsApp de atención guardado.' : 'WhatsApp quitado: el botón no se muestra.');
+            } })),
+          Util.el('p', { class: 'adm-nota', text: 'El cliente toca el botón y te escribe por WhatsApp con su número de bandera. Sin WhatsApp, el botón no se muestra.' }));
+      }
+      await pintar();
+      cuerpo.append(zona, inArchivo, msg);
+      Util.escuchar(cuerpo, ['store:' + MOD], pintar);
     }
   });
 })();
